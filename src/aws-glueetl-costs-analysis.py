@@ -109,15 +109,14 @@ default_costs_file = "./glueetl_costs.jsonl"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    opts = parser.add_argument
-    opts("start_date", type=str, help="start date, eg: 2023-11-01")
-    opts("end_date", type=str, help="end date, eg: 2023-11-30")
-    opts(
+    opt = parser.add_argument
+    opt("start_date", type=str, help="start date, eg: 2023-11-01")
+    opt("end_date", type=str, help="end date, eg: 2023-11-30")
+    opt(
         "--costs-file",
         type=str,
         default=default_costs_file,
-        help="file to save costs data",
-        metavar=default_costs_file,
+        help="file to save costs data, (default: %(default)s)",
     )
     args = parser.parse_args()
 
