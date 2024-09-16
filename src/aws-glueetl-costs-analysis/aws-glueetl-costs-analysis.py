@@ -1,60 +1,55 @@
 import argparse
 import json
-import os.path
+import os
 from datetime import datetime
-from typing import List
+from typing import Generator, List
 
 import boto3
 import pandas as pd
 import plotly.express as px
 
-glue_client = boto3.client("glue")
 
+class GlueClient:
+    def __init__(self):
+        self.client = boto3.client("glue")
 
-def get_all_job_runs(job_name):
-    res = glue_client.get_job_runs(JobName=job_name, MaxResults=200)
-    job_runs: List = res["JobRuns"]
-    next_token = res.get("NextToken")
-    while next_token:
-        res = glue_client.get_job_runs(
-            JobName=job_name, MaxResults=200, NextToken=next_token
-        )
+    def get_jobs(self) -> Generator[dict, None, None]:
+        """Generator to yield Glue jobs."""
+        res = self.client.get_jobs(MaxResults=1000)
+        jobs = res.get("Jobs", [])
+        yield from jobs
         next_token = res.get("NextToken")
-        job_runs.extend(res["JobRuns"])
-    return job_runs
+        while next_token:
+            res = self.client.get_jobs(MaxResults=1000, NextToken=next_token)
+            jobs = res.get("Jobs", [])
+            yield from jobs
+            next_token = res.get("NextToken")
 
-
-def filter_etl(jobs):
-    etl = []
-    for job in jobs:
-        if job["Command"]["Name"] == "glueetl":
-            etl.append(job["Name"])
-    return etl
-
-
-def get_etl_jobs():
-    etl_jobs = []
-    res = glue_client.get_jobs(MaxResults=1000)
-    jobs = res["Jobs"]
-    etl_jobs += filter_etl(jobs)
-    next_token = res.get("NextToken")
-    while next_token:
-        res = glue_client.get_jobs(MaxResults=1000)
+    def get_all_job_runs(self, job_name: str) -> Generator[dict, None, None]:
+        """Generator to yield all job runs for a given job name."""
+        res = self.client.get_job_runs(JobName=job_name, MaxResults=200)
+        job_runs = res.get("JobRuns", [])
+        yield from job_runs
         next_token = res.get("NextToken")
-        jobs = res["Jobs"]
-        etl_jobs += filter_etl(jobs)
-    return etl_jobs
+        while next_token:
+            res = self.client.get_job_runs(
+                JobName=job_name, MaxResults=200, NextToken=next_token
+            )
+            job_runs = res.get("JobRuns", [])
+            yield from job_runs
+            next_token = res.get("NextToken")
+
+    def filter_etl_jobs(self, jobs: Generator[dict, None, None]) -> List[str]:
+        """Filter ETL jobs."""
+        return [job["Name"] for job in jobs if job["Command"]["Name"] == "glueetl"]
 
 
-def download_job_runs_log(costs_file):
-    glue_jobs = get_etl_jobs()
+def download_job_runs_log(glue_client: GlueClient, costs_file: str):
+    """Download and save job runs log to a file."""
+    etl_jobs = glue_client.filter_etl_jobs(glue_client.get_jobs())
     with open(costs_file, "w", encoding="utf8") as f:
-        for job in glue_jobs:
-            job_runs = get_all_job_runs(job)
-            if not job_runs:
-                continue
-            print(f"Job Runs for {job}")
-            for run in job_runs:
+        for job in etl_jobs:
+            for run in glue_client.get_all_job_runs(job):
                 stat = (
                     "Id: {Id}\tStartedOn: {StartedOn}\tCompletedOn: {CompletedOn}\t"
                     "ExecutionTime: {ExecutionTime}\tMaxCapacity: {MaxCapacity}\t"
@@ -70,10 +65,11 @@ def download_job_runs_log(costs_file):
                 )
                 print(stat)
                 f.write(json.dumps(run, ensure_ascii=False, default=str) + "\n")
-    print(f"data saved to {costs_file}")
+    print(f"Data saved to {costs_file}")
 
 
 def analysis_job_costs(costs_file, start_date: str, end_date: str):
+    """Analyze Glue job costs based on DPUs usage."""
     if not os.path.exists(costs_file):
         raise FileNotFoundError(costs_file)
 
@@ -98,27 +94,37 @@ def analysis_job_costs(costs_file, start_date: str, end_date: str):
         y="DPUs",
         color="JobName",
         title="Daily Glue Job DPUs Costs",
-        labels={"EndTime": "End time（Y-M-D Hour）", "MaxCapacity": "DPU Costs"},
+        labels={"EndTime": "End time（Y-M-D Hour）", "DPUs": "DPU Costs"},
         hover_data=["JobName"],
         category_orders={"EndTime": sorted(agg_data["EndTime"].unique())},
     )
     fig.show()
 
 
-default_costs_file = "./glueetl_costs.jsonl"
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     opt = parser.add_argument
-    opt("start_date", type=str, help="start date, eg: 2023-11-01")
-    opt("end_date", type=str, help="end date, eg: 2023-11-30")
+    opt("start_date", type=str, help="Start date, e.g., 2023-11-01")
+    opt("end_date", type=str, help="End date, e.g., 2023-11-30")
     opt(
+        "-F",
         "--costs-file",
         type=str,
-        default=default_costs_file,
-        help="file to save costs data, (default: %(default)s)",
+        default="./glueetl_costs.jsonl",
+        help="File to save costs data",
     )
+    opt(
+        "-K",
+        "--skip-download",
+        action="store_true",
+        help="Skip downloading job logs and only analyze",
+    )
+
     args = parser.parse_args()
 
-    download_job_runs_log(args.costs_file)
+    glue_client = GlueClient()
+
+    if not args.skip_download:
+        download_job_runs_log(glue_client, args.costs_file)
+
     analysis_job_costs(args.costs_file, args.start_date, args.end_date)
