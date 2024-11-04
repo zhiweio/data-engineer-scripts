@@ -1,6 +1,6 @@
 # data-engineer-scripts
 
-Simple scripts and tools for data engineer
+A curated collection of streamlined and effective scripts and tools designed specifically for data engineering tasks.
 
 | Script                                                                  | Description                                                                                                                                                                                                                                                    |
 |:------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
