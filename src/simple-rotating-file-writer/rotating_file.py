@@ -1,4 +1,29 @@
 import os
+import re
+
+
+def sequence_extension_namer(filename):
+    """
+    A naming convention that incorporates a sequential number along with the file extension.
+
+    :param filename: The input filename to process.
+    :return: The filename with an updated sequence number, if applicable.
+
+    """
+    pattern = r"^(?P<basename>.+?)(?P<extension>\.[^.]+)?(?P<seq_suffix>(\.(?P<sequence>\d+))?)$"
+    match = re.match(pattern, filename)
+    if match:
+        info = match.groupdict()
+        basename = info["basename"]
+        extension = info["extension"]
+        sequence = info["sequence"]
+        if sequence:
+            filename = f"{basename}.{sequence}{extension}"
+        else:
+            filename = f"{basename}{extension}"
+        return filename
+    else:
+        raise NameError(f"Invalid filename: {filename}")
 
 
 class SimpleRotatingFileWriter:

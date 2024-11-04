@@ -2,7 +2,7 @@ import os
 import shutil
 import unittest
 
-from rotating_file import SimpleRotatingFileWriter
+from rotating_file import SimpleRotatingFileWriter, sequence_extension_namer
 
 
 class TestSimpleRotatingFileWriter(unittest.TestCase):
@@ -44,6 +44,16 @@ class TestSimpleRotatingFileWriter(unittest.TestCase):
 
         # Check the existence of backup files
         self.assertTrue(os.path.exists(self.writer.rotation_filename(os.path.join(self.test_dir, 'logfile.log.1'))))
+        self.assertTrue(os.path.exists(self.writer.rotation_filename(os.path.join(self.test_dir, 'logfile.log'))))
+
+    def test_sequence_extension_namer(self):
+        """Test that the rollover works when the max_bytes limit is exceeded."""
+        with self.writer:
+            self.writer.namer = sequence_extension_namer
+            self.writer.write("1234567890123456789012345678901234567890")
+            self.writer.write("12345678901234567890")
+
+        self.assertTrue(os.path.exists(self.writer.rotation_filename(os.path.join(self.test_dir, 'logfile.1.log'))))
         self.assertTrue(os.path.exists(self.writer.rotation_filename(os.path.join(self.test_dir, 'logfile.log'))))
 
     def test_context_manager(self):
