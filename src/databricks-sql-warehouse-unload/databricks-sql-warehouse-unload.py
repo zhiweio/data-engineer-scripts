@@ -30,10 +30,11 @@ from databricks.sdk.service.sql import (
     Disposition,
     Format,
     StatementState,
+    ExternalLink,
 )
 from loguru import logger
 from requests.adapters import HTTPAdapter
-from requests.exceptions import RequestException, ReadTimeout
+from requests.exceptions import RequestException, ReadTimeout, ConnectTimeout
 
 LOG = logger
 
@@ -52,6 +53,28 @@ class Suffix(str, Enum):
     parquet = ".parquet"
     arrow_stream = ".arrow_stream"
     json = ".json"
+
+
+@redo.retriable(
+    attempts=5,
+    sleeptime=60,
+    max_sleeptime=300,
+    sleepscale=1,
+    retry_exceptions=(TimeoutError, ReadTimeout, ConnectTimeout),
+)
+def get_external_links(
+    wc: WorkspaceClient, statement_id, chunk_id
+) -> List[ExternalLink]:
+    try:
+        statement = wc.statement_execution.get_statement_result_chunk_n(
+            statement_id, chunk_id
+        )
+        return statement.external_links or []
+    except (TimeoutError, ReadTimeout, ConnectTimeout) as e:
+        LOG.warning(
+            f"Get external_links by chunk index {chunk_id} timeout, retrying..."
+        )
+        raise e
 
 
 @redo.retriable(
@@ -151,10 +174,8 @@ def download_external_files(
         http_session = requests.session()
 
     LOG.info(f"Get result chunk by index {chunk_id}")
-    statement = wc.statement_execution.get_statement_result_chunk_n(
-        statement_id, chunk_id
-    )
-    for link in statement.external_links:
+    external_links = get_external_links(wc, statement_id, chunk_id)
+    for link in external_links:
         file_url = link.external_link
         LOG.info(
             f"Downloading chunk {chunk_id}, {file_url!r} expire at {link.expiration}"
